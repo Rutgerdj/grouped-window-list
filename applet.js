@@ -342,7 +342,8 @@ class GroupedWindowListApplet extends Applet.Applet {
             {key: 'autostart-menu-item', value: 'autoStart', cb: null},
             {key: 'launch-new-instance-menu-item', value: 'launchNewInstance', cb: null},
             {key: 'monitor-move-all-windows', value: 'monitorMoveAllWindows', cb: null},
-            {key: 'show-all-workspaces', value: 'showAllWorkspaces', cb: this.refreshAllAppLists}
+            {key: 'show-all-workspaces', value: 'showAllWorkspaces', cb: this.refreshAllAppLists},
+            {key: 'list-monitor-windows', value: 'listMonitorWindows', cb: this.handleMonitorWindowsPrefsChange}
         ];
 
         for (let i = 0, len = settingsProps.length; i < len; i++) {
@@ -369,8 +370,10 @@ class GroupedWindowListApplet extends Applet.Applet {
             return;
         }
 
-        this.numberOfMonitors = null;
-        this.updateMonitorWatchlist();
+        if (this.state.settings.listMonitorWindows) {
+            this.numberOfMonitors = null;
+            this.updateMonitorWatchlist();
+        }
 
         if (instance && instance.instance_id === this.instance_id) {
             this.onSwitchWorkspace();
@@ -433,7 +436,8 @@ class GroupedWindowListApplet extends Applet.Applet {
     }
 
     onWindowMonitorChanged(screen, metaWindow, metaWorkspace) {
-        if (this.state.monitorWatchList.length !== this.numberOfMonitors) {
+        if (this.state.settings.listMonitorWindows 
+            && this.state.monitorWatchList.length !== this.numberOfMonitors) {
             let appList = this.getCurrentAppList();
             appList.windowRemoved(metaWorkspace, metaWindow);
             appList.windowAdded(metaWorkspace, metaWindow);
@@ -487,7 +491,17 @@ class GroupedWindowListApplet extends Applet.Applet {
     }
 
     handleMonitorWindowsPrefsChange(value) {
-        
+        let instances = Main.AppletManager.getRunningInstancesForUuid(this.state.uuid);
+        for (let i = 0; i < instances.length; i++) {
+            if (!instances[i]) {
+                continue;
+            }
+            instances[i].updateMonitorWatchlist();
+            if (instances[i].panel.monitorIndex !== this.panel.monitorIndex) {
+                instances[i].state.settings.listMonitorWindows = this.state.settings.listMonitorWindows;
+            }
+            instances[i].refreshCurrentAppList();
+        }        
     }
 
     updateMonitorWatchlist() {
