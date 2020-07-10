@@ -166,9 +166,8 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
         subMenu.menu.addMenuItem(item);
 
         item = createMenuItem({label: _("Remove '%s'").format(_("Grouped window list")), icon: 'edit-delete'});
-        this.signals.connect(item, 'activate', () => {
-            AppletManager._removeAppletFromPanel(this.state.uuid, this.state.instance_id);
-        });
+        this.signals.connect(item, 'activate', (actor, event) => this.state.trigger('removeApplet', event));
+
         subMenu.menu.addMenuItem(item);
         this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
@@ -282,19 +281,17 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
 
         // Pin/unpin, shortcut handling
         if (!isWindowBacked) {
-            if (this.state.settings.showPinned !== FavType.none) {
-                let label, icon;
-                if (this.groupState.isFavoriteApp) {
-                    label = _('Unpin from Panel');
-                    icon = 'unpin';
-                } else {
-                    label = _('Pin to Panel');
-                    icon = 'pin';
-                }
-                this.pinToggleItem = createMenuItem({label, icon});
-                this.signals.connect(this.pinToggleItem, 'activate', (...args) => this.toggleFavorite(...args));
-                this.addMenuItem(this.pinToggleItem);
+            let label, icon;
+            if (this.groupState.isFavoriteApp) {
+                label = _('Unpin from Panel');
+                icon = 'unpin';
+            } else {
+                label = _('Pin to Panel');
+                icon = 'pin';
             }
+            this.pinToggleItem = createMenuItem({label, icon});
+            this.signals.connect(this.pinToggleItem, 'activate', (...args) => this.toggleFavorite(...args));
+            this.addMenuItem(this.pinToggleItem);
             if (this.state.settings.autoStart) {
                 let label = this.groupState.autoStartIndex !== -1 ? _('Remove from Autostart') : _('Add to Autostart');
                 item = createMenuItem({label: label, icon: 'insert-object'});
@@ -498,6 +495,21 @@ class HoverMenuController extends PopupMenu.PopupMenuManager {
     destroy() {
         this.groupState.disconnect(this.connectId);
         super.destroy();
+    }
+
+    _onMenuOpenState(menu, open) {
+        if (open) {
+            if (this._activeMenu && this._activeMenu.isChildMenu(menu)) {
+                this._menuStack.push(this._activeMenu);
+            }
+            this._activeMenu = menu;
+        } else {
+            if (this._menuStack.length > 0) {
+                this._activeMenu = this._menuStack.pop();
+                if (menu.sourceActor)
+                    this._didPop = true;
+            }
+        }
     }
 }
 
@@ -899,11 +911,10 @@ class AppThumbnailHoverMenu extends PopupMenu.PopupMenu {
             },
             addThumbnailToMenu: (win) => {
                 if (this.isOpen) {
-                    this.close(true);
                     this.addThumbnail(win);
-                    this.open(true);
                     return;
                 }
+
                 this.queuedWindows.push(win);
             },
             removeThumbnailFromMenu: (win) => {

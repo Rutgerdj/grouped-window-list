@@ -49,7 +49,7 @@ class AppList {
         this.lastFocusedApp = null;
 
         // Connect all the signals
-        this.signals.connect(this.metaWorkspace, 'window-added', (...args) => this.windowAdded(...args));
+        this.signals.connect(global.screen, 'window-workspace-changed', (...args) => this.windowWorkspaceChanged(...args));
         this.signals.connect(this.metaWorkspace, 'window-removed', (...args) => this.windowRemoved(...args));
         this.on_orientation_changed(null, true);
     }
@@ -150,12 +150,6 @@ class AppList {
         }, 2000)
     }
 
-    updateSpacing() {
-        each(this.appList, function(appGroup) {
-            appGroup.setMargin();
-        });
-    }
-
     // Gets a list of every app on the current workspace
     getSpecialApps() {
         this.specialApps = [];
@@ -182,9 +176,6 @@ class AppList {
     }
 
     loadFavorites() {
-        if (!this.state.settings.showPinned) {
-            return;
-        }
         const favorites = this.state.trigger('getFavorites');
         const appSystem = this.state.trigger('getAppSystem');
         for (let i = 0; i < favorites.length; i++) {
@@ -236,8 +227,11 @@ class AppList {
             || metaWindow.is_on_all_workspaces()
             || metaWindow.get_workspace() === this.metaWorkspace)
         && !metaWindow.is_skip_taskbar()
-        && (!this.state.settings.listMonitorWindows
-            || this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) > -1);
+        && this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) > -1;
+    }
+
+    windowWorkspaceChanged(screen, metaWorkspace, metaWindow) {
+        this.windowAdded(metaWindow, metaWorkspace);
     }
 
     windowAdded(metaWorkspace, metaWindow, app, isFavoriteApp) {
@@ -267,7 +261,6 @@ class AppList {
         if (!app
             || (!isFavoriteApp
                 && metaWindow
-                && this.state.settings.listMonitorWindows
                 && this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) === -1)) {
             return;
         }

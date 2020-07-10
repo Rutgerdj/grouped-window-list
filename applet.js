@@ -24,32 +24,20 @@ const {
 class PinnedFavs {
     constructor(params) {
         this.params = params;
-        this.favoriteSettingKey = 'favorite-apps';
         this.reload();
     }
 
     reload() {
         const {state, signals, settings} = this.params;
         const appSystem = state.trigger('getAppSystem');
-        if (signals.isConnected('changed::favorite-apps', global.settings)) {
-            signals.disconnect('changed::favorite-apps', global.settings);
-        }
         if (signals.isConnected('changed::pinned-apps', settings)) {
             signals.disconnect('changed::pinned-apps', settings);
         }
         let cb = () => this.onFavoritesChange();
-        if (state.settings.systemFavorites) {
-            signals.connect(global.settings, 'changed::favorite-apps',  cb);
-        } else {
-            signals.connect(settings, 'changed::pinned-apps', cb);
-        }
+        signals.connect(settings, 'changed::pinned-apps', cb);
         this._favorites = [];
         let ids = [];
-        if (state.settings.systemFavorites) {
-            ids = global.settings.get_strv(this.favoriteSettingKey);
-        } else {
-            ids = settings.getValue('pinned-apps');
-        }
+        ids = settings.getValue('pinned-apps');
         for (let i = 0, len = ids.length; i < len; i++) {
             let refFav = findIndex(this._favorites, (item) => item.id === ids[i]);
             if (refFav === -1) {
@@ -91,37 +79,12 @@ class PinnedFavs {
                 uniqueSet.add(this._favorites[i].id);
             }
         }
-
-        if (this.params.state.settings.systemFavorites) {
-            global.settings.set_strv(this.favoriteSettingKey, ids);
-        } else {
-            this.params.settings.setValue('pinned-apps', ids);
-        }
+        this.params.settings.setValue('pinned-apps', ids);
     }
 
     onFavoritesChange() {
-        let currentAppList = this.params.state.trigger('getCurrentAppList');
-        if (!this.params.state.settings.groupApps) {
-            setTimeout(() => currentAppList.refreshList(), 0);
-            return;
-        }
-        let oldFavoritesIds = [];
-        let newFavoritesIds = [];
-        for (let i = 0; i < this._favorites.length; i++) {
-            oldFavoritesIds.push(this._favorites[i].id);
-        }
         this.reload();
-        for (let i = 0; i < this._favorites.length; i++) {
-            newFavoritesIds.push(this._favorites[i].id);
-        }
-        for (let i = 0; i < oldFavoritesIds.length; i++) {
-            if (newFavoritesIds.indexOf(oldFavoritesIds[i]) < 0) {
-                this.triggerUpdate(oldFavoritesIds[i], false);
-            }
-        }
-        for (let i = 0; i < this._favorites.length; i++) {
-            this.triggerUpdate(newFavoritesIds[i], true);
-        }
+        this.params.state.trigger('refreshAllAppLists');
     }
 
     addFavorite(opts = {appId: null, app: null, pos: -1}) {
@@ -288,6 +251,7 @@ class GroupedWindowListApplet extends Applet.Applet {
                 this.state.removingWindowFromWorkspaces = false;
             },
             refreshCurrentAppList: () => this.refreshCurrentAppList(),
+            refreshAllAppLists: () => this.refreshAllAppLists(),
             getCurrentAppList: () => this.getCurrentAppList(),
             clearDragPlaceholder: () => this.clearDragPlaceholder(),
             getAutoStartApps: () => this.getAutoStartApps(),
@@ -304,6 +268,7 @@ class GroupedWindowListApplet extends Applet.Applet {
             cycleWindows: (e, source) => this.handleScroll(e, source),
             openAbout: () => this.openAbout(),
             configureApplet: () => this.configureApplet(),
+            removeApplet: (event) => this.confirmRemoveApplet(event),
         });
 
         this.settings = new AppletSettings(this.state.settings, metadata.uuid, instance_id);
@@ -333,6 +298,7 @@ class GroupedWindowListApplet extends Applet.Applet {
         this.signals.connect(global.screen, 'window-skip-taskbar-changed', (...args) => this.onWindowSkipTaskbarChanged(...args));
         this.signals.connect(global.display, 'window-marked-urgent', (...args) => this.updateAttentionState(...args));
         this.signals.connect(global.display, 'window-demands-attention', (...args) => this.updateAttentionState(...args));
+        this.signals.connect(global.display, 'window-created', (...args) => this.onWindowCreated(...args));
         this.signals.connect(global.settings, 'changed::panel-edit-mode', (...args) => this.on_panel_edit_mode_changed(...args));
         this.signals.connect(Main.overview, 'showing', (...args) => this.onOverviewShow(...args));
         this.signals.connect(Main.overview, 'hiding', (...args) => this.onOverviewHide(...args));
@@ -343,8 +309,6 @@ class GroupedWindowListApplet extends Applet.Applet {
 
     bindSettings() {
         let settingsProps = [
-            {key: 'show-pinned', value: 'showPinned', cb: this.refreshCurrentAppList},
-            {key: 'show-alerts', value: 'showAlerts', cb: this.updateAttentionState},
             {key: 'group-apps', value: 'groupApps', cb: this.refreshCurrentAppList},
             {key: 'enable-app-button-dragging', value: 'enableDragging', cb: null},
             {key: 'launcher-animation-effect', value: 'launcherAnimationEffect', cb: null},
@@ -374,14 +338,11 @@ class GroupedWindowListApplet extends Applet.Applet {
             {key: 'number-display', value: 'numDisplay', cb: this.updateWindowNumberState},
             {key: 'title-display', value: 'titleDisplay', cb: this.updateTitleDisplay},
             {key: 'scroll-behavior', value: 'scrollBehavior', cb: null},
-            {key: 'icon-spacing', value: 'iconSpacing', cb: this.updateSpacing},
             {key: 'show-recent', value: 'showRecent', cb: null},
             {key: 'autostart-menu-item', value: 'autoStart', cb: null},
             {key: 'launch-new-instance-menu-item', value: 'launchNewInstance', cb: null},
             {key: 'monitor-move-all-windows', value: 'monitorMoveAllWindows', cb: null},
-            {key: 'system-favorites', value: 'systemFavorites', cb: this.updateFavorites},
-            {key: 'show-all-workspaces', value: 'showAllWorkspaces', cb: this.refreshAllAppLists},
-            {key: 'list-monitor-windows', value: 'listMonitorWindows', cb: this.handleMonitorWindowsPrefsChange}
+            {key: 'show-all-workspaces', value: 'showAllWorkspaces', cb: this.refreshAllAppLists}
         ];
 
         for (let i = 0, len = settingsProps.length; i < len; i++) {
@@ -400,7 +361,6 @@ class GroupedWindowListApplet extends Applet.Applet {
             return;
         }
         this.bindAppKeys();
-        this.updateSpacing();
         this.state.set({appletReady: true});
     }
 
@@ -409,10 +369,8 @@ class GroupedWindowListApplet extends Applet.Applet {
             return;
         }
 
-        if (this.state.settings.listMonitorWindows) {
-            this.numberOfMonitors = null;
-            this.updateMonitorWatchlist();
-        }
+        this.numberOfMonitors = null;
+        this.updateMonitorWatchlist();
 
         if (instance && instance.instance_id === this.instance_id) {
             this.onSwitchWorkspace();
@@ -475,8 +433,7 @@ class GroupedWindowListApplet extends Applet.Applet {
     }
 
     onWindowMonitorChanged(screen, metaWindow, metaWorkspace) {
-        if (this.state.settings.listMonitorWindows
-            && this.state.monitorWatchList.length !== this.numberOfMonitors) {
+        if (this.state.monitorWatchList.length !== this.numberOfMonitors) {
             let appList = this.getCurrentAppList();
             appList.windowRemoved(metaWorkspace, metaWindow);
             appList.windowAdded(metaWorkspace, metaWindow);
@@ -530,17 +487,7 @@ class GroupedWindowListApplet extends Applet.Applet {
     }
 
     handleMonitorWindowsPrefsChange(value) {
-        let instances = Main.AppletManager.getRunningInstancesForUuid(this.state.uuid);
-        for (let i = 0; i < instances.length; i++) {
-            if (!instances[i]) {
-                continue;
-            }
-            instances[i].updateMonitorWatchlist();
-            if (instances[i].panel.monitorIndex !== this.panel.monitorIndex) {
-                instances[i].state.settings.listMonitorWindows = this.state.settings.listMonitorWindows;
-            }
-            instances[i].refreshCurrentAppList();
-        }
+        
     }
 
     updateMonitorWatchlist() {
@@ -612,12 +559,6 @@ class GroupedWindowListApplet extends Applet.Applet {
         });
     }
 
-    updateSpacing() {
-        each(this.appLists, (workspace) => {
-            workspace.updateSpacing();
-        });
-    }
-
     updateWindowNumberState() {
         each(this.appLists, (workspace) => {
             workspace.calcAllWindowNumbers();
@@ -625,11 +566,14 @@ class GroupedWindowListApplet extends Applet.Applet {
     }
 
     updateAttentionState(display, window) {
-        if (!this.state.settings.showAlerts) {
-            return false;
-        }
         each(this.appLists, (workspace) => {
             workspace.updateAttentionState(display, window);
+        });
+    }
+
+    onWindowCreated(display, window) {
+        each(this.appLists, (workspace) => {
+            workspace.windowAdded(window.get_workspace(), window);
         });
     }
 
@@ -648,13 +592,16 @@ class GroupedWindowListApplet extends Applet.Applet {
             || this.state.lastTitleDisplay === TitleDisplay.None) {
             this.refreshCurrentAppList();
         }
-        let appList = this.getCurrentAppList().appList;
-        each(appList, (appGroup) => {
-            if (titleDisplay === TitleDisplay.Focused) {
-                appGroup.hideLabel(false);
-            }
-            appGroup.handleTitleDisplayChange();
+
+        each(this.appLists, (workspace) => {
+            each(workspace.appList, (appGroup) => {
+                if (titleDisplay === TitleDisplay.Focused) {
+                    appGroup.hideLabel(false);
+                }
+                appGroup.handleTitleDisplayChange();
+            });
         });
+
         this.state.set({lastTitleDisplay: titleDisplay});
     }
 
