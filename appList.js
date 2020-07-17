@@ -227,7 +227,7 @@ class AppList {
             || metaWindow.is_on_all_workspaces()
             || metaWindow.get_workspace() === this.metaWorkspace)
         && !metaWindow.is_skip_taskbar()
-        && (!this.state.settings.listMonitorWindows || this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) > -1);
+        && this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) > -1;
     }
 
     windowWorkspaceChanged(screen, metaWorkspace, metaWindow) {
@@ -261,7 +261,6 @@ class AppList {
         if (!app
             || (!isFavoriteApp
                 && metaWindow
-                && this.state.settings.listMonitorWindows
                 && this.state.monitorWatchList.indexOf(metaWindow.get_monitor()) === -1)) {
             return;
         }
